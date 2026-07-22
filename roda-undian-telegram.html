@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Roda Undian Nama</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--tg-theme-bg-color, #f5f4f0);
+    color: var(--tg-theme-text-color, #1a1a1a);
+    display: flex;
+    justify-content: center;
+    padding: 20px 16px 40px;
+    margin: 0;
+    min-height: 100vh;
+  }
+  .container { max-width: 420px; width: 100%; }
+  h1 { font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 24px; }
+  .input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  input[type="text"] {
+    flex: 1; padding: 10px 12px;
+    border: 1px solid var(--tg-theme-hint-color, #ddd);
+    border-radius: 8px; font-size: 14px; outline: none;
+    background: var(--tg-theme-secondary-bg-color, #fff);
+    color: var(--tg-theme-text-color, #1a1a1a);
+  }
+  button {
+    padding: 10px 16px; border: 1px solid var(--tg-theme-hint-color, #ccc); border-radius: 8px;
+    background: var(--tg-theme-secondary-bg-color, #fff);
+    color: var(--tg-theme-text-color, #1a1a1a);
+    cursor: pointer; font-size: 14px; font-weight: 500;
+  }
+  button:active { transform: scale(0.98); }
+  #spinBtn {
+    display: block; margin: 0 auto 16px; width: 180px; padding: 12px;
+    background: var(--tg-theme-button-color, #1a1a1a);
+    color: var(--tg-theme-button-text-color, #fff);
+    border: none; font-weight: 600;
+  }
+  #spinBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+  .tag {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--tg-theme-secondary-bg-color, #fff);
+    border: 1px solid var(--tg-theme-hint-color, #ddd);
+    border-radius: 8px; padding: 5px 10px; font-size: 13px;
+  }
+  .tag .remove { cursor: pointer; color: #999; font-weight: bold; }
+  .tag .remove:hover { color: #d33; }
+  .wheel-wrap { position: relative; width: 300px; height: 300px; margin: 0 auto 20px; max-width: 100%; }
+  .pointer {
+    position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+    width: 0; height: 0; border-left: 12px solid transparent;
+    border-right: 12px solid transparent;
+    border-top: 22px solid var(--tg-theme-text-color, #1a1a1a); z-index: 10;
+  }
+  #wheel { width: 100%; height: 100%; transition: transform 4s cubic-bezier(0.17,0.89,0.32,1.1); }
+  #resultBox {
+    display: none; text-align: center; background: #e6f1fb; color: #0c447c;
+    border-radius: 8px; padding: 14px; font-size: 16px; font-weight: 600; margin-top: 4px;
+  }
+  .hint { text-align: center; font-size: 12px; color: var(--tg-theme-hint-color, #888); margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎡 Roda Undian Nama</h1>
+
+  <div class="input-row">
+    <input id="nameInput" type="text" placeholder="Ketik nama lalu tekan Enter">
+    <button id="addBtn">+ Tambah</button>
+  </div>
+
+  <div id="tagList" class="tag-list"></div>
+
+  <div class="wheel-wrap">
+    <div class="pointer"></div>
+    <svg id="wheel" viewBox="0 0 320 320"></svg>
+  </div>
+
+  <button id="spinBtn">▶ Putar!</button>
+
+  <div id="resultBox"></div>
+
+  <p class="hint">Tambah/hapus nama sesuka hati, lalu klik Putar untuk mengundi.</p>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+}
+
+const ramps = ['#7F77DD','#1D9E75','#D85A30','#D4537E','#378ADD','#639922','#EF9F27','#888780'];
+let names = ['Andi','Budi','Citra','Dewi','Eka'];
+let spinning = false;
+let currentRotation = 0;
+
+const wheel = document.getElementById('wheel');
+const tagList = document.getElementById('tagList');
+const nameInput = document.getElementById('nameInput');
+const resultBox = document.getElementById('resultBox');
+const spinBtn = document.getElementById('spinBtn');
+
+function renderTags(){
+  tagList.innerHTML = '';
+  names.forEach((n,i)=>{
+    const tag = document.createElement('div');
+    tag.className = 'tag';
+    tag.innerHTML = '<span></span><span class="remove">×</span>';
+    tag.querySelector('span').textContent = n;
+    tag.querySelector('.remove').onclick = ()=>{ names.splice(i,1); renderTags(); drawWheel(); };
+    tagList.appendChild(tag);
+  });
+}
+
+function drawWheel(){
+  wheel.innerHTML = '';
+  const n = names.length;
+  if(n === 0){
+    wheel.innerHTML = '<circle cx="160" cy="160" r="150" fill="#f0f0f0" stroke="#ddd" stroke-width="1"/><text x="160" y="165" text-anchor="middle" fill="#999" font-size="14">Tambahkan nama</text>';
+    return;
+  }
+  const cx=160, cy=160, r=150;
+  const slice = 360/n;
+  for(let i=0;i<n;i++){
+    const startAngle = (i*slice - 90) * Math.PI/180;
+    const endAngle = ((i+1)*slice - 90) * Math.PI/180;
+    const x1 = cx + r*Math.cos(startAngle);
+    const y1 = cy + r*Math.sin(startAngle);
+    const x2 = cx + r*Math.cos(endAngle);
+    const y2 = cy + r*Math.sin(endAngle);
+    const largeArc = slice > 180 ? 1 : 0;
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${largeArc} 1 ${x2},${y2} Z`);
+    path.setAttribute('fill', ramps[i % ramps.length]);
+    path.setAttribute('stroke', '#fff');
+    path.setAttribute('stroke-width', '1.5');
+    wheel.appendChild(path);
+
+    const midAngle = (i*slice + slice/2 - 90) * Math.PI/180;
+    const tx = cx + (r*0.62)*Math.cos(midAngle);
+    const ty = cy + (r*0.62)*Math.sin(midAngle);
+    const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+    text.setAttribute('x', tx);
+    text.setAttribute('y', ty);
+    text.setAttribute('text-anchor','middle');
+    text.setAttribute('fill','#fff');
+    text.setAttribute('font-size','13');
+    text.setAttribute('font-weight','600');
+    text.setAttribute('transform', `rotate(${(i*slice+slice/2)}, ${tx}, ${ty})`);
+    text.textContent = names[i].length > 10 ? names[i].slice(0,9)+'…' : names[i];
+    wheel.appendChild(text);
+  }
+}
+
+function addName(){
+  if(nameInput.value.trim()){
+    names.push(nameInput.value.trim());
+    nameInput.value = '';
+    renderTags();
+    drawWheel();
+    tg?.HapticFeedback?.impactOccurred('light');
+  }
+}
+
+nameInput.addEventListener('keydown', e=>{
+  if(e.key === 'Enter'){ addName(); }
+});
+document.getElementById('addBtn').onclick = addName;
+
+spinBtn.onclick = ()=>{
+  if(spinning || names.length === 0) return;
+  spinning = true;
+  spinBtn.disabled = true;
+  resultBox.style.display = 'none';
+  tg?.HapticFeedback?.impactOccurred('medium');
+  const n = names.length;
+  const slice = 360/n;
+
+  const extraSpins = 6 + Math.floor(Math.random()*3);
+  const randomOffset = Math.random()*360;
+  currentRotation += extraSpins*360 + randomOffset;
+  wheel.style.transform = `rotate(${currentRotation}deg)`;
+
+  const normalized = ((currentRotation % 360) + 360) % 360;
+  const pointerAngleInWheel = (360 - normalized) % 360;
+  const winnerIndex = Math.floor(pointerAngleInWheel / slice) % n;
+
+  setTimeout(()=>{
+    spinning = false;
+    spinBtn.disabled = false;
+    resultBox.style.display = 'block';
+    resultBox.textContent = '🏆 Pemenang: ' + names[winnerIndex];
+    tg?.HapticFeedback?.notificationOccurred('success');
+  }, 4100);
+};
+
+renderTags();
+drawWheel();
+</script>
+</body>
+</html>
